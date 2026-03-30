@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>skat</title>
+</head>
+<body>
+  <h1>skat WASM App</h1>
+  <script type="module">
+    import init, { fetch_data } from './pkg/skat.js';
+
+    await init();
+
+    // fetch_data gibt ein Promise zurück (async Rust → JS Promise)
+    // const data = await fetch_data('https://api.example.com/data');
+  </script>
+</body>
+</html>

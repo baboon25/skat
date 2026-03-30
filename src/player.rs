@@ -1,9 +1,7 @@
-use std::default;
+use futures::channel::oneshot;
+use wasm_bindgen::prelude::*;
 
-use crate::{
-    deck::{Card, CardError, Deck, Skat, Suit},
-    game::GameError,
-};
+use crate::deck::{Card, CardError, Deck, Rank, Suit};
 
 #[async_trait::async_trait]
 pub trait PlayerController {
@@ -14,6 +12,8 @@ pub trait PlayerController {
     async fn take_off(&mut self, deck_size: usize) -> usize;
 }
 
+/// Einfache regelbasierte KI. Die Hand wird in `announce` gespeichert
+/// und in `play` verwendet, da der Trait die Hand dort nicht übergibt.
 #[derive(Debug, Default)]
 pub struct AiController {
     hand: Vec<Card>,
@@ -22,27 +22,158 @@ pub struct AiController {
 #[async_trait::async_trait]
 impl PlayerController for AiController {
     async fn play(&mut self, previous: &[Card]) -> Card {
-        // Einfache Strategie: wenn anführend → höchste Karte
-        // wenn folgend → niedrigste Karte die sticht, sonst niedrigste
-        todo!()
+        if previous.is_empty() {
+            // Anführend: höchste Karte spielen
+            let best = self.hand.iter().enumerate()
+                .max_by_key(|(_, c)| c.get_rank().map(|r| r as u8).unwrap_or(0));
+            let idx = best.map(|(i, _)| i).unwrap_or(0);
+            self.hand.remove(idx)
+        } else {
+            // Folgend: niedrigste Karte (Strategie später verfeinern)
+            let idx = self.hand.iter().enumerate()
+                .min_by_key(|(_, c)| c.get_rank().map(|r| r as u8).unwrap_or(u8::MAX))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            self.hand.remove(idx)
+        }
     }
 
-    async fn bid(&mut self, current_bid: Bid) -> Bid {
-        Bid::Pass // simpel: KI passt immer
+    async fn bid(&mut self, _current_bid: Bid) -> Bid {
+        Bid::Pass
     }
 
-    async fn listen(&mut self, bid: Bid) -> bool {
+    async fn listen(&mut self, _bid: Bid) -> bool {
         false
     }
 
     async fn announce(&mut self, hand: &[Card]) -> Announcement {
-        todo!() // basierend auf Handstärke
-    }
-    
-    async fn take_off(&mut self, deck_size: usize) -> usize{
-        todo!()
+        self.hand = hand.to_vec();
+        // Simpel: immer Grand ansagen
+        Announcement {
+            game: AnnounceSuit::Grand,
+            hand: false,
+            schneider: false,
+            schwarz: false,
+        }
     }
 
+    async fn take_off(&mut self, deck_size: usize) -> usize {
+        deck_size / 2
+    }
+}
+
+/// Human-Controller: wartet per oneshot-Channel auf Eingaben aus JS/UI.
+pub struct HumanController {
+    play_sender: Option<oneshot::Sender<Card>>,
+    bid_sender: Option<oneshot::Sender<Bid>>,
+    listen_sender: Option<oneshot::Sender<bool>>,
+    announce_sender: Option<oneshot::Sender<Announcement>>,
+    take_off_sender: Option<oneshot::Sender<usize>>,
+    play_receiver: Option<oneshot::Receiver<Card>>,
+    bid_receiver: Option<oneshot::Receiver<Bid>>,
+    listen_receiver: Option<oneshot::Receiver<bool>>,
+    announce_receiver: Option<oneshot::Receiver<Announcement>>,
+    take_off_receiver: Option<oneshot::Receiver<usize>>,
+}
+
+impl HumanController {
+    pub fn new() -> Self {
+        let (play_tx, play_rx) = oneshot::channel();
+        let (bid_tx, bid_rx) = oneshot::channel();
+        let (listen_tx, listen_rx) = oneshot::channel();
+        let (announce_tx, announce_rx) = oneshot::channel();
+        let (take_off_tx, take_off_rx) = oneshot::channel();
+        Self {
+            play_sender: Some(play_tx),
+            bid_sender: Some(bid_tx),
+            listen_sender: Some(listen_tx),
+            announce_sender: Some(announce_tx),
+            take_off_sender: Some(take_off_tx),
+            play_receiver: Some(play_rx),
+            bid_receiver: Some(bid_rx),
+            listen_receiver: Some(listen_rx),
+            announce_receiver: Some(announce_rx),
+            take_off_receiver: Some(take_off_rx),
+        }
+    }
+
+    fn reset_channel<T>() -> (Option<oneshot::Sender<T>>, Option<oneshot::Receiver<T>>) {
+        let (tx, rx) = oneshot::channel();
+        (Some(tx), Some(rx))
+    }
+
+    /// Wird von JS aufgerufen wenn der Spieler eine Karte auswählt.
+    pub fn resolve_play(&mut self, card: Card) {
+        if let Some(tx) = self.play_sender.take() {
+            tx.send(card).ok();
+        }
+        let (tx, rx) = oneshot::channel();
+        self.play_sender = Some(tx);
+        self.play_receiver = Some(rx);
+    }
+
+    /// Wird von JS aufgerufen wenn der Spieler ein Gebot macht.
+    pub fn resolve_bid(&mut self, bid: Bid) {
+        if let Some(tx) = self.bid_sender.take() {
+            tx.send(bid).ok();
+        }
+        let (tx, rx) = oneshot::channel();
+        self.bid_sender = Some(tx);
+        self.bid_receiver = Some(rx);
+    }
+
+    /// Wird von JS aufgerufen wenn der Spieler hört/passt.
+    pub fn resolve_listen(&mut self, listens: bool) {
+        if let Some(tx) = self.listen_sender.take() {
+            tx.send(listens).ok();
+        }
+        let (tx, rx) = oneshot::channel();
+        self.listen_sender = Some(tx);
+        self.listen_receiver = Some(rx);
+    }
+
+    /// Wird von JS aufgerufen wenn der Spieler ansagt.
+    pub fn resolve_announce(&mut self, announcement: Announcement) {
+        if let Some(tx) = self.announce_sender.take() {
+            tx.send(announcement).ok();
+        }
+        let (tx, rx) = oneshot::channel();
+        self.announce_sender = Some(tx);
+        self.announce_receiver = Some(rx);
+    }
+
+    /// Wird von JS aufgerufen wenn der Spieler abhebt.
+    pub fn resolve_take_off(&mut self, idx: usize) {
+        if let Some(tx) = self.take_off_sender.take() {
+            tx.send(idx).ok();
+        }
+        let (tx, rx) = oneshot::channel();
+        self.take_off_sender = Some(tx);
+        self.take_off_receiver = Some(rx);
+    }
+}
+
+#[async_trait::async_trait]
+impl PlayerController for HumanController {
+    async fn play(&mut self, _previous: &[Card]) -> Card {
+        self.play_receiver.take().unwrap().await.unwrap()
+    }
+
+    async fn bid(&mut self, _current_bid: Bid) -> Bid {
+        self.bid_receiver.take().unwrap().await.unwrap()
+    }
+
+    async fn listen(&mut self, _bid: Bid) -> bool {
+        self.listen_receiver.take().unwrap().await.unwrap()
+    }
+
+    async fn announce(&mut self, _hand: &[Card]) -> Announcement {
+        self.announce_receiver.take().unwrap().await.unwrap()
+    }
+
+    async fn take_off(&mut self, _deck_size: usize) -> usize {
+        self.take_off_receiver.take().unwrap().await.unwrap()
+    }
 }
 
 
@@ -112,7 +243,10 @@ impl Default for Player {
     fn default() -> Self {
         Self {
             controller: Box::new(AiController::default()),
-            ..Default::default()
+            hand: Default::default(),
+            party: None,
+            score: 0,
+            tricks: Vec::new(),
         }
     }
 }

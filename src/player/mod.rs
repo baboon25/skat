@@ -4,51 +4,13 @@ use futures::{channel::oneshot, lock::Mutex};
 
 use crate::{deck::{Card, CardError, Deck, Rank, Suit}, helpers::render_game_state, player::ai::AiController};
 
-pub mod human;
+pub mod local;
 pub mod ai;
 
 pub type SharedHand = Arc<Mutex<[Card; 12]>>;
 
 
-// ── thread-local state ────────────────────────────────────────────────────────
 
-thread_local! {
-    pub static HUMAN_HAND: RefCell<Vec<Card>> = RefCell::new(Vec::new());
-    static TABLE_CARDS: RefCell<Vec<Card>> = RefCell::new(Vec::new());
-    static PLAY_TX: RefCell<Option<oneshot::Sender<Card>>> = RefCell::new(None);
-    static BID_TX: RefCell<Option<oneshot::Sender<Bid>>> = RefCell::new(None);
-    static LISTEN_TX: RefCell<Option<oneshot::Sender<bool>>> = RefCell::new(None);
-    static ANNOUNCE_TX: RefCell<Option<oneshot::Sender<Announcement>>> = RefCell::new(None);
-    static TAKE_OFF_TX: RefCell<Option<oneshot::Sender<usize>>> = RefCell::new(None);
-}
-
-// ── resolve functions (called from lib.rs via wasm_bindgen) ──────────────────
-
-pub fn resolve_play(card_index: usize) {
-    let card = HUMAN_HAND.with(|h| {
-        let mut hand = h.borrow_mut();
-        if card_index < hand.len() { Some(hand.remove(card_index)) } else { None }
-    });
-    if let Some(card) = card {
-        PLAY_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(card).ok()); });
-    }
-}
-
-pub fn resolve_bid(bid: Bid) {
-    BID_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(bid).ok()); });
-}
-
-pub fn resolve_listen(listens: bool) {
-    LISTEN_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(listens).ok()); });
-}
-
-pub fn resolve_announce(announcement: Announcement) {
-    ANNOUNCE_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(announcement).ok()); });
-}
-
-pub fn resolve_take_off(idx: usize) {
-    TAKE_OFF_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(idx).ok()); });
-}
 
 #[async_trait::async_trait]
 pub trait PlayerController {

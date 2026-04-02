@@ -18,6 +18,10 @@ impl Card {
         Self(suit as u8 + ((rank as u8) << 4))
     }
 
+    pub const fn const_default() -> Self{
+        Self(0)
+    }
+
     pub fn get_suit(&self) -> Suit {
         let suit = self.0 & 0b0000_1111;
         Suit::try_from(suit).ok().unwrap_or_default()

@@ -77,9 +77,7 @@
   <button id="start-btn" onclick="skatApp.startGame()">Neues Spiel</button>
 
   <script type="module">
-    import init, {
-      start_game, play_card, submit_bid, submit_listen, submit_announce, submit_take_off
-    } from './pkg/skat.js';
+    import init, { start_game, LocalPlayer } from './pkg/skat.js';
 
     await init();
 
@@ -100,19 +98,19 @@
 
     window.skatApp = {
       startGame() { start_game(); },
-      playCard(i) { play_card(i); },
+      playCard(i) { LocalPlayer.play_card(i); },
       bid(value) {
         const mode = document.getElementById('bid-mode').value;
         if (mode === 'listen') {
-          submit_listen(value > 0);
+          LocalPlayer.submit_listen(value > 0);
         } else {
-          submit_bid(value);
+          LocalPlayer.submit_bid(value);
         }
       },
-      announce(gameType) { submit_announce(gameType); },
+      announce(gameType) { LocalPlayer.submit_announce(gameType); },
       takeOff() {
         const idx = parseInt(document.getElementById('take-off-val').value) || 16;
-        submit_take_off(idx);
+        LocalPlayer.submit_take_off(idx);
       },
     };
   </script>

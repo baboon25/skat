@@ -1,53 +1,54 @@
-use std::default;
+use std::{default, marker::PhantomData};
 
+use futures::lock::Mutex;
 use rand::{
     Rng,
     seq::{IndexedRandom, SliceRandom},
 };
+use web_sys::console::log_1;
 
 use crate::{
     deck::{Card, CardError, Deck},
-    player::{self, Announcement, Bid, Party, Player},
+    player::{self, Announcement, Bid, Party, Player, SharedHand},
 };
 
 pub struct Game<S>
 where
-    S: Scoring + Default,
+    S: Scoring,
 {
     deck: Deck,
     players: [Player; 3],
     games: u8,
-    scoring: S,
+    _scoring: PhantomData<S>,
 }
 
 impl<S> Default for Game<S>
 where
-    S: Scoring + Default,
+    S: Scoring,
 {
     fn default() -> Self {
         Self {
             deck: Default::default(),
             players: Default::default(),
             games: 1,
-            scoring: S::default(),
+            _scoring: PhantomData,
         }
     }
 }
 
 impl<S> Game<S>
 where
-    S: Scoring + Default,
+    S: Scoring,
 {
     pub fn new(
         player1: Player,
         player2: Player,
         player3: Player,
         games: u8,
-        scoring: S,
     ) -> Self {
         Self {
             players: [player1, player2, player3],
-            scoring,
+            _scoring: PhantomData,
             games,
             ..Default::default()
         }
@@ -63,12 +64,12 @@ where
 
             //shuffle
             self.deck.riffle_shuffle(rng)?;
-            self.players[(curr_player + 1) % 3].take_off(&mut self.deck);
+            self.players[(curr_player + 1) % 3].take_off(&mut self.deck).await;
             self.deck.riffle_shuffle(rng)?;
-            self.players[(curr_player + 1) % 3].take_off(&mut self.deck);
+            self.players[(curr_player + 1) % 3].take_off(&mut self.deck).await;
 
             //deal
-            let skat = self.deal(curr_player);
+            let skat = self.deal(curr_player).await;
 
             // bid
             let declarer_idx = self.bid(curr_player).await?;
@@ -102,12 +103,15 @@ where
         Ok(())
     }
 
-    fn deal(&mut self, curr_player: usize) -> [Card; 2] {
+    async fn deal(&mut self, curr_player: usize) -> [Card; 2] {
         let (mut deals, skat) = self.deck.deal();
         for (i, deal) in deals.iter_mut().enumerate() {
             let mut extended = [Card::default(); 12];
-            self.players[(curr_player + i + 1) % 3].hand = {
+            log_1(&format!("{:?}", deal).into());
+            *self.players[(curr_player + i + 1) % 3].hand.lock().await = {
                 extended[..10].copy_from_slice(deal);
+                extended.sort_by(|s, o| o.cmp(s, &Default::default()));
+                log_1(&format!("{:?}", extended).into());
                 extended
             }
         }
@@ -190,6 +194,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub enum GameError {
     CardError(CardError),
     InvalidBidError(Bid, Bid),
@@ -206,6 +211,7 @@ pub trait Scoring {
     fn score(re: &mut Player, kontra: &[&mut Player], announcement: &Announcement) -> Result<(), ScoreError>;
 }
 
+#[derive(Debug)]
 pub enum ScoreError {
     NoReProvided,
     TooManyReProvided,

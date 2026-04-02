@@ -1,4 +1,4 @@
-use std::ops::Index;
+use std::{default, ops::Index};
 
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution, Normal, NormalError};
@@ -18,31 +18,40 @@ impl Card {
         Self(suit as u8 + ((rank as u8) << 4))
     }
 
-    pub fn get_suit(&self) -> Option<Suit> {
+    pub fn get_suit(&self) -> Suit {
         let suit = self.0 & 0b0000_1111;
-        Suit::try_from(suit).ok()
+        Suit::try_from(suit).ok().unwrap_or_default()
     }
 
-    pub fn get_rank(&self) -> Option<Rank> {
-        Rank::try_from(self.0).ok()
+    pub fn get_rank(&self) -> Rank {
+        Rank::try_from(self.0).ok().unwrap_or_default()
     }
+
+    pub fn has_suit(&self) -> bool{
+        self.get_suit() != Suit::None
+    }
+
+    pub fn has_rank(&self) -> bool{
+        self.get_rank() != Rank::None
+    }
+
 
     /// Returns `Ok(true)` if `self` beats `other` given the announcement.
     ///
     /// Non-commutative: `self` is assumed to be the leading (first-played) card.
     /// A card of a different suit can only win if it is trump.
-    pub fn surpases(&self, other: &Card, announcement: &Announcement) -> Result<bool, CardError> {
-        if self.get_suit() == None
-            || other.get_suit() == None
-            || self.get_rank() == None
-            || other.get_rank() == None
+    pub fn surpasses(&self, other: &Card, announcement: &Announcement) -> Result<bool, CardError> {
+        if self.get_suit() == Suit::None
+            || other.get_suit() == Suit::None
+            || self.get_rank() == Rank::None
+            || other.get_rank() == Rank::None
         {
             return Err(CardError::Uninitialized);
         }
-        let self_suit = self.get_suit().unwrap();
-        let self_rank = self.get_rank().unwrap();
-        let other_suit = other.get_suit().unwrap();
-        let other_rank = other.get_rank().unwrap();
+        let self_suit = self.get_suit();
+        let self_rank = self.get_rank();
+        let other_suit = other.get_suit();
+        let other_rank = other.get_rank();
 
         Ok(match announcement.game {
             AnnounceSuit::Grand => {
@@ -88,15 +97,40 @@ impl Card {
             }
         })
     }
+
+    pub fn cmp(&self, other: &Card, announcement: &Announcement) -> std::cmp::Ordering {
+        self.sort_key(announcement)
+            .cmp(&other.sort_key(announcement))
+    }
+
+    fn sort_key(&self, announcement: &Announcement) -> u8 {
+        let suit = self.get_suit();
+        let rank = self.get_rank();
+
+        let is_jack = rank == Rank::Jack;
+        let is_trump = match &announcement.game {
+            AnnounceSuit::Grand => is_jack,
+            AnnounceSuit::Null => false,
+            AnnounceSuit::Suit(t) => suit == *t || is_jack,
+        };
+
+        match (is_jack, is_trump) {
+            (true, _) => 200 + suit as u8,     // Buben oben, nach Farbe
+            (false, true) => 100 + rank as u8, // Trumpf nach Rang
+            (false, false) => (suit as u8) * 10 + rank as u8, // Nebenkarten nach Farbe+Rang
+        }
+    }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[repr(u8)]
 pub enum Suit {
     Clubs = 4,
     Spades = 3,
     Hearts = 2,
     Diamonds = 1,
+    #[default]
+    None = 0
 }
 
 impl TryFrom<u8> for Suit {
@@ -117,7 +151,7 @@ impl From<Suit> for u8 {
 }
 
 #[repr(u8)]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Rank {
     Ace = 8,
     Ten = 7,
@@ -127,6 +161,8 @@ pub enum Rank {
     Nine = 3,
     Eight = 2,
     Seven = 1,
+    #[default]
+    None = 0
 }
 
 impl TryFrom<u8> for Rank {
@@ -160,6 +196,7 @@ impl Rank {
     }
 }
 
+#[derive(Debug)]
 pub enum CardError {
     ConversionError(u8),
     RandError(RandError),
@@ -233,6 +270,10 @@ impl Deck {
             } else {
                 result[head] = right.remove(0);
             }
+            head += 1;
+        }
+        for card in left.into_iter().chain(right) {
+            result[head] = card;
             head += 1;
         }
         self.deck = result;

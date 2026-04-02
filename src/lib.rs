@@ -3,44 +3,90 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 mod deck;
-mod player;
 mod game;
+mod helpers;
+mod player;
 
-pub enum RandError{
-    NormalError(NormalError)
+use deck::Suit;
+use game::{DefaultScore, Game};
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+
+use crate::{
+    helpers::set_status,
+    player::{AnnounceSuit, Announcement, Player, SharedHand, bid_from_value, human::HumanController, resolve_announce, resolve_bid, resolve_listen, resolve_play, resolve_take_off},
+};
+
+#[derive(Debug)]
+pub enum RandError {
+    NormalError(NormalError),
 }
 
-// Panic-Meldungen in der Browser-Konsole anzeigen
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
-    log("skat WASM geladen");
+}
 
-    // Asynchronen Task starten (läuft auf dem Browser-Event-Loop)
+/// Startet ein neues Spiel.
+#[wasm_bindgen]
+pub fn start_game() {
     spawn_local(async {
-        init().await;
+        set_status("Spiel wird gestartet...");
+        let mut rng = SmallRng::from_rng(&mut rand::rng());
+        let hand = SharedHand::new(Default::default());
+        let human = Player::new(HumanController::new(hand.clone()), hand);
+        let ai1 = Player::default();
+        let ai2 = Player::default();
+
+        let mut game = Game::<DefaultScore>::new(human, ai1, ai2, 1);
+        match game.play(&mut rng).await {
+            Ok(_) => set_status("Spiel beendet!"),
+            Err(e) => set_status(&format!("Fehler: {:?}", e)),
+        }
     });
 }
 
-async fn init() {
-    log("Async init gestartet");
-
-    // Beispiel: 1 Sekunde warten (nicht-blockierend)
-    gloo_timers::future::TimeoutFuture::new(1_000).await;
-
-    log("1 Sekunde vergangen – async runtime funktioniert");
-}
-
-/// Wird von JavaScript aufgerufen; gibt ein Promise zurück
+/// Spieler spielt Karte mit Index `i` aus seiner Hand.
 #[wasm_bindgen]
-pub async fn fetch_data(url: String) -> Result<JsValue, JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("kein window"))?;
-    let resp_value = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(&url)).await?;
-    let resp: web_sys::Response = resp_value.dyn_into()?;
-    let json = wasm_bindgen_futures::JsFuture::from(resp.json()?).await?;
-    Ok(json)
+pub fn play_card(i: usize) {
+    resolve_play(i);
 }
 
-fn log(msg: &str) {
-    web_sys::console::log_1(&JsValue::from_str(msg));
+/// Spieler bietet `value` (0 = Pass).
+#[wasm_bindgen]
+pub fn submit_bid(value: u8) {
+    let bid = bid_from_value(value).unwrap_or(player::Bid::Pass);
+    resolve_bid(bid);
+}
+
+/// Spieler hört beim Reizen (true = hören, false = weg).
+#[wasm_bindgen]
+pub fn submit_listen(listens: bool) {
+    resolve_listen(listens);
+}
+
+/// Spieler sagt an (0=Grand, 1=Null, 2=Kreuz, 3=Pik, 4=Herz, 5=Karo).
+#[wasm_bindgen]
+pub fn submit_announce(game_type: u8) {
+    let suit = match game_type {
+        0 => AnnounceSuit::Grand,
+        1 => AnnounceSuit::Null,
+        2 => AnnounceSuit::Suit(Suit::Clubs),
+        3 => AnnounceSuit::Suit(Suit::Spades),
+        4 => AnnounceSuit::Suit(Suit::Hearts),
+        5 => AnnounceSuit::Suit(Suit::Diamonds),
+        _ => AnnounceSuit::Grand,
+    };
+    resolve_announce(Announcement {
+        game: suit,
+        hand: false,
+        schneider: false,
+        schwarz: false,
+    });
+}
+
+/// Spieler hebt ab bei Position `idx`.
+#[wasm_bindgen]
+pub fn submit_take_off(idx: usize) {
+    resolve_take_off(idx);
 }

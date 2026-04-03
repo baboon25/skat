@@ -8,7 +8,7 @@ use crate::{
 pub mod ai;
 pub mod local;
 
-pub type SharedHand = Rc<RefCell<[Card; 12]>>;
+pub type SharedHand = Rc<RefCell<Vec<Card>>>;
 
 #[async_trait::async_trait(?Send)]
 pub trait PlayerController {
@@ -106,7 +106,7 @@ impl Player {
 
 impl Default for Player {
     fn default() -> Self {
-        let hand: SharedHand = Default::default();
+        let hand: SharedHand = Rc::new(RefCell::new(Vec::with_capacity(12)));
         Self {
             controller: Box::new(AiController::new(hand.clone())),
             hand,

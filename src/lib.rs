@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use rand_distr::NormalError;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -32,7 +34,7 @@ pub fn start_game() {
     spawn_local(async {
         set_status("Spiel wird gestartet...");
         let mut rng = SmallRng::from_rng(&mut rand::rng());
-        let hand = SharedHand::new(Default::default());
+        let hand = SharedHand::new(RefCell::new(Vec::with_capacity(12)));
         let human = Player::new(LocalPlayer::new(hand.clone()), hand);
         let ai1 = Player::default();
         let ai2 = Player::default();

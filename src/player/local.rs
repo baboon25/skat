@@ -97,22 +97,22 @@ impl PlayerController for LocalPlayer {
         hide("take-off-area");
         show("hand");
         loop {
-            render_game_state(&*self.hand.borrow(), previous);
+            render_game_state(&self.hand.borrow(), previous);
             set_status("Wähle eine Karte zum Ausspielen");
             let (tx, rx) = oneshot::channel();
             PLAY_TX.with(|t| *t.borrow_mut() = Some(tx));
             let idx = rx.await.unwrap();
             let card = self.hand.borrow()[idx];
             let lead = previous.first().copied();
-            if lead.is_none() || card.is_legal(&*self.hand.borrow(), lead.unwrap(), announcement) {
-                return Ok(std::mem::take(&mut self.hand.borrow_mut()[idx]));
+            if lead.is_none() || card.is_legal(&self.hand.borrow(), lead.unwrap(), announcement) {
+                return Ok(self.hand.borrow_mut().remove(idx));
             }
             set_status("Ungültige Karte — du musst Farbe bekennen!");
         }
     }
 
     async fn bid(&mut self, current_bid: Bid) -> Bid {
-        render_game_state(&*self.hand.borrow(), &[]);
+        render_game_state(&self.hand.borrow(), &[]);
         show("hand");
         hide("announce-area");
         hide("take-off-area");

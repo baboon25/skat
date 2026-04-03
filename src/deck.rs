@@ -271,6 +271,7 @@ pub enum CardError {
     RandError(RandError),
     IllegalCardPlayed,
     Uninitialized,
+    NoLegalCardFound
 }
 
 pub struct Deck {

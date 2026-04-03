@@ -22,20 +22,17 @@ impl PlayerController for AiController {
         announcement: &Announcement,
     ) -> Result<Card, CardError> {
         let hand = &mut *self.hand.borrow_mut();
+        let None = hand.iter().find(|c| !c.has_rank() && !c.has_suit()) else {
+            return Err(CardError::Uninitialized);
+        };
+        hand.sort_by(|c, o| o.cmp(c, announcement));
         if previous.is_empty() {
-            Ok(std::mem::take(
-                hand.iter_mut()
-                    .find(|c| c.has_rank() && c.has_suit())
-                    .ok_or(CardError::Uninitialized)?,
-            ))
+            Ok(hand.remove(0))
         } else {
-            let lookup = *hand;
-            Ok(std::mem::take(
-                hand.iter_mut()
-                    .filter(|c| c.has_rank() && c.has_suit() && c.is_legal(&lookup, previous[0], announcement))
-                    .min_by_key(|c| c.get_rank())
-                    .ok_or(CardError::Uninitialized)?,
-            ))
+            let Some((i, _)) = hand.iter().enumerate().filter(|(_, c)| c.is_legal(&hand, previous[0], announcement)).last() else {
+                return Err(CardError::NoLegalCardFound)
+            };
+            Ok(hand.remove(i))
         }
     }
 

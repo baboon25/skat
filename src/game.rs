@@ -76,9 +76,7 @@ where
             let (mut winner, [mut opponent0, mut opponent1]) = self.split_players(declarer_idx);
 
             winner.party = Some(Party::Re);
-            winner.hand.borrow_mut().iter_mut().filter(|c| c.0 == 0).enumerate().for_each(|(i, c)|{
-                *c = skat[i];
-            });
+            winner.hand.borrow_mut().append(&mut Vec::from(skat));
             winner.hand.borrow_mut().sort_by(|c, o| o.cmp(c, &Default::default()));
             opponent0.party = Some(Party::Contra);
             opponent1.party = Some(Party::Contra);
@@ -111,14 +109,19 @@ where
     async fn deal(&mut self, curr_player: usize) -> [Card; 2] {
         let (mut deals, skat) = self.deck.deal();
         for (i, deal) in deals.iter_mut().enumerate() {
-            let mut extended = [Card::default(); 12];
+            // let mut extended = [Card::default(); 12];
             // log_1(&format!("{:?}", deal).into());
             *self.players[(curr_player + i + 1) % 3].hand.borrow_mut() = {
-                extended[..10].copy_from_slice(deal);
-                extended.sort_by(|s, o| o.cmp(s, &Default::default()));
-                // log_1(&format!("{:?}", extended).into());
-                extended
+                let mut hand = Vec::from(deal);
+                hand.sort_by(|c, o| o.cmp(c, &Default::default()));
+                hand
             }
+            // {
+            //     let  hand = Vec::from(deal);
+            //     // extended.sort_by(|s, o| o.cmp(s, &Default::default()));
+            //     // log_1(&format!("{:?}", extended).into());
+            //     extended
+            // }
         }
         skat
     }

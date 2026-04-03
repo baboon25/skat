@@ -1,32 +1,43 @@
-use crate::{deck::{Card, CardError, Suit}, player::{AnnounceSuit, Announcement, Bid, PlayerController, SharedHand}};
+use crate::{
+    deck::{Card, CardError, Suit},
+    player::{AnnounceSuit, Announcement, Bid, PlayerController, SharedHand},
+};
 
 #[derive(Debug, Default)]
 pub struct AiController {
-    hand: SharedHand
+    hand: SharedHand,
 }
 
-impl AiController{
-    pub fn new(hand: SharedHand) -> Self{
-        Self{hand}
+impl AiController {
+    pub fn new(hand: SharedHand) -> Self {
+        Self { hand }
     }
 }
 
 #[async_trait::async_trait]
 impl PlayerController for AiController {
-    async fn play(&mut self, previous: &[Card]) -> Result<Card, CardError> {
-        web_sys::console::log_1(&format!("AI hand: {:?}", *self.hand.lock().await).into());
+    async fn play(
+        &mut self,
+        previous: &[Card],
+        announcement: &Announcement,
+    ) -> Result<Card, CardError> {
+        let hand = &mut *self.hand.lock().await;
         if previous.is_empty() {
-            Ok(std::mem::take(self.hand.lock().await.iter_mut().find(|c| c.has_rank() && c.has_suit()).ok_or(CardError::Uninitialized)?))
-
-
-            // let idx = self.hand.lock().await.iter().enumerate()
-            //     .max_by_key(|(_, c)| c.get_rank().map(|r| r as u8).unwrap_or(0))
-            //     .map(|(i, _)| i)
-            //     .unwrap_or(0);
-            // std::mem::take(&mut self.hand.lock().await[idx])
+            Ok(std::mem::take(
+                hand.iter_mut()
+                    .find(|c| c.has_rank() && c.has_suit())
+                    .ok_or(CardError::Uninitialized)?,
+            ))
         } else {
-            Ok(std::mem::take(self.hand.lock().await.iter_mut().filter(|c| c.has_rank() && c.has_suit())
-                .min_by_key(|c| c.get_rank()).ok_or(CardError::Uninitialized)?))
+            let lookup = *hand;
+            Ok(std::mem::take(
+                hand
+                    .iter_mut()
+                    .filter(|c| c.has_rank() && c.has_suit())
+                    .filter(|c| c.is_legal(&lookup, previous[0], announcement))
+                    .min_by_key(|c| c.get_rank())
+                    .ok_or(CardError::Uninitialized)?,
+            ))
         }
     }
 
@@ -39,7 +50,12 @@ impl PlayerController for AiController {
     }
 
     async fn announce(&mut self) -> Announcement {
-        Announcement { game: AnnounceSuit::Grand, hand: false, schneider: false, schwarz: false }
+        Announcement {
+            game: AnnounceSuit::Grand,
+            hand: false,
+            schneider: false,
+            schwarz: false,
+        }
     }
 
     async fn take_off(&mut self, deck_size: usize) -> usize {

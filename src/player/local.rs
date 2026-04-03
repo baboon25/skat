@@ -77,17 +77,26 @@ impl LocalPlayer {
 
 #[async_trait::async_trait]
 impl PlayerController for LocalPlayer {
-    async fn play(&mut self, previous: &[Card]) -> Result<Card, CardError> {
-        render_game_state(&*self.hand.lock().await, previous);
+    async fn play(&mut self, previous: &[Card], announcement: &Announcement) -> Result<Card, CardError> {
         hide("bid-area");
         hide("announce-area");
         hide("take-off-area");
         show("hand");
-        set_status("Wähle eine Karte zum Ausspielen");
-        let (tx, rx) = oneshot::channel();
-        PLAY_TX.with(|t| *t.borrow_mut() = Some(tx));
-        let idx = rx.await.unwrap();
-        Ok(std::mem::take(&mut self.hand.lock().await[idx]))
+        loop {
+            render_game_state(&*self.hand.lock().await, previous);
+            set_status("Wähle eine Karte zum Ausspielen");
+            let (tx, rx) = oneshot::channel();
+            PLAY_TX.with(|t| *t.borrow_mut() = Some(tx));
+            let idx = rx.await.unwrap();
+            let hand = self.hand.lock().await;
+            let card = hand[idx];
+            let lead = previous.first().copied();
+            if lead.is_none() || card.is_legal(&*hand, lead.unwrap(), announcement) {
+                drop(hand);
+                return Ok(std::mem::take(&mut self.hand.lock().await[idx]));
+            }
+            set_status("Ungültige Karte — du musst Farbe bekennen!");
+        }
     }
 
     async fn bid(&mut self, current_bid: Bid) -> Bid {

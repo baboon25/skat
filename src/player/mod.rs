@@ -14,7 +14,7 @@ pub type SharedHand = Arc<Mutex<[Card; 12]>>;
 
 #[async_trait::async_trait]
 pub trait PlayerController {
-    async fn play(&mut self, previous_played_cards: &[Card]) -> Result<Card, CardError>;
+    async fn play(&mut self, previous: &[Card], announcement: &Announcement) -> Result<Card, CardError>;
     async fn bid(&mut self, current_bid: Bid) -> Bid;
     async fn listen(&mut self, bid: Bid) -> bool;
     async fn announce(&mut self) -> Announcement;
@@ -61,9 +61,9 @@ impl Player {
         op2: &'b mut Player,
         announcement: &Announcement,
     ) -> Result<*const Player, CardError> {
-        let played_card = self.controller.play(&[]).await?;
-        let op1_card = op1.controller.play(&[played_card]).await?;
-        let op2_card = op2.controller.play(&[played_card, op1_card]).await?;
+        let played_card = self.controller.play(&[], announcement).await?;
+        let op1_card = op1.controller.play(&[played_card], announcement).await?;
+        let op2_card = op2.controller.play(&[played_card, op1_card], announcement).await?;
 
         if played_card.surpasses(&op1_card, announcement)?
             && played_card.surpasses(&op2_card, announcement)?

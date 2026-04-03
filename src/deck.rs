@@ -18,7 +18,7 @@ impl Card {
         Self(suit as u8 + ((rank as u8) << 4))
     }
 
-    pub const fn const_default() -> Self{
+    pub const fn const_default() -> Self {
         Self(0)
     }
 
@@ -31,14 +31,79 @@ impl Card {
         Rank::try_from(self.0).ok().unwrap_or_default()
     }
 
-    pub fn has_suit(&self) -> bool{
+    pub fn has_suit(&self) -> bool {
         self.get_suit() != Suit::None
     }
 
-    pub fn has_rank(&self) -> bool{
+    pub fn has_rank(&self) -> bool {
         self.get_rank() != Rank::None
     }
 
+    pub fn is_legal(&self, hand: &[Card], other: Card, announcement: &Announcement) -> bool {
+        match announcement.game {
+            AnnounceSuit::Grand => {
+                match (
+                    self.get_rank() == Rank::Jack,
+                    other.get_rank() == Rank::Jack,
+                ) {
+                    (false, true) => {
+                        hand.iter().filter(|c| c.get_rank() == Rank::Jack).count() == 0
+                    }
+                    (true, false) => {
+                        hand.iter()
+                            .filter(|c| {
+                                c.get_suit() == other.get_suit() && c.get_rank() != Rank::Jack
+                            })
+                            .count()
+                            == 0
+                    },
+                    (true, true) => true,
+                    _ => self.follows_suit(hand, other)
+                }
+            }
+            AnnounceSuit::Null => self.follows_suit(hand, other),
+            AnnounceSuit::Suit(trump) => {
+                let other_is_trump = other.get_suit() == trump || other.get_rank() == Rank::Jack;
+                let self_is_trump = self.get_suit() == trump || self.get_rank() == Rank::Jack;
+
+                if other_is_trump {
+                    // Angespielte Karte ist Trump → muss Trump bedienen wenn möglich
+                    if !self_is_trump {
+                        return hand
+                            .iter()
+                            .filter(|c| c.get_suit() == trump || c.get_rank() == Rank::Jack)
+                            .count()
+                            == 0;
+                    }
+                    true
+                } else {
+                    // Angespielte Karte ist keine Trump → Farbe bedienen
+                    // Jacks zählen nicht als Farbe ihres Symbols (sie sind Trump)
+                    if self.get_suit() != other.get_suit() || self.get_rank() == Rank::Jack {
+                        return hand
+                            .iter()
+                            .filter(|c| {
+                                c.get_suit() == other.get_suit() && c.get_rank() != Rank::Jack
+                            })
+                            .count()
+                            == 0;
+                    }
+                    true
+                }
+            }
+        }
+    }
+
+    pub fn follows_suit(&self, hand: &[Card], other: Card) -> bool {
+        if self.get_suit() != other.get_suit() {
+            return hand
+                .iter()
+                .filter(|c| c.get_suit() == other.get_suit())
+                .count()
+                == 0;
+        }
+        true
+    }
 
     /// Returns `Ok(true)` if `self` beats `other` given the announcement.
     ///
@@ -134,7 +199,7 @@ pub enum Suit {
     Hearts = 2,
     Diamonds = 1,
     #[default]
-    None = 0
+    None = 0,
 }
 
 impl TryFrom<u8> for Suit {
@@ -166,7 +231,7 @@ pub enum Rank {
     Eight = 2,
     Seven = 1,
     #[default]
-    None = 0
+    None = 0,
 }
 
 impl TryFrom<u8> for Rank {
@@ -204,6 +269,7 @@ impl Rank {
 pub enum CardError {
     ConversionError(u8),
     RandError(RandError),
+    IllegalCardPlayed,
     Uninitialized,
 }
 

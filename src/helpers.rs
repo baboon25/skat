@@ -1,5 +1,6 @@
 use crate::{
     deck::{Card, Rank, Suit},
+    player::{AnnounceSuit, Announcement},
 };
 
 pub fn card_label(card: &Card) -> String {
@@ -54,9 +55,25 @@ pub fn set_status(msg: &str) {
     set_html("status", msg);
 }
 
+pub fn set_game_type(announcement: &Announcement) {
+    let label = match &announcement.game {
+        AnnounceSuit::Grand => "Grand".to_string(),
+        AnnounceSuit::Null => "Null".to_string(),
+        AnnounceSuit::Suit(suit) => match suit {
+            Suit::Clubs => "♣ Kreuz".to_string(),
+            Suit::Spades => "♠ Pik".to_string(),
+            Suit::Hearts => "♥ Herz".to_string(),
+            Suit::Diamonds => "♦ Karo".to_string(),
+            Suit::None => "?".to_string(),
+        },
+    };
+    set_html("game-type", &label);
+}
+
 pub fn render_game_state(hand: &[Card], table: &[Card]) {
     let hand_html = hand
         .iter()
+        .filter(|c| c.has_rank() && c.has_suit())
         .enumerate()
         .map(|(i, c)| {
             format!(

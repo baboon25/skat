@@ -42,6 +42,7 @@
   <h1>Skat</h1>
 
   <div id="status">Bereit</div>
+  <div id="game-type" style="text-align: center; font-size: 1em; opacity: 0.8; min-height: 1.2em;"></div>
 
   <div id="table-cards"></div>
 
@@ -65,6 +66,11 @@
     <input type="hidden" id="bid-mode" value="bid" />
     <div id="bid-buttons"></div>
     <button onclick="skatApp.bid(0)">Passe</button>
+  </div>
+
+  <!-- Skat-Bereich -->
+  <div id="skat-area" style="display: none; text-align: center; margin: 10px 0;">
+    <p>Klicke zwei Karten zum Drücken an</p>
   </div>
 
   <!-- Abheben-Bereich -->
@@ -98,7 +104,14 @@
 
     window.skatApp = {
       startGame() { start_game(); },
-      playCard(i) { LocalPlayer.play_card(i); },
+      playCard(i) {
+        const skatArea = document.getElementById('skat-area');
+        if (skatArea.style.display !== 'none') {
+          LocalPlayer.select_skat_card(i);
+        } else {
+          LocalPlayer.play_card(i);
+        }
+      },
       bid(value) {
         const mode = document.getElementById('bid-mode').value;
         if (mode === 'listen') {

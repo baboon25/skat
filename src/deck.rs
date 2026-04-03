@@ -11,7 +11,7 @@ use crate::{
 pub type Skat = [Card; 2];
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Card(u8);
+pub struct Card(pub u8);
 
 impl Card {
     pub const fn new(suit: Suit, rank: Rank) -> Self {

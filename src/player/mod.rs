@@ -1,27 +1,30 @@
-use std::{any::Any, cell::RefCell, default, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc};
 
-use futures::{channel::oneshot, lock::Mutex};
+use crate::{
+    deck::{Card, CardError, Deck, Suit},
+    player::ai::AiController,
+};
 
-use crate::{deck::{Card, CardError, Deck, Rank, Suit}, helpers::render_game_state, player::ai::AiController};
-
-pub mod local;
 pub mod ai;
+pub mod local;
 
-pub type SharedHand = Arc<Mutex<[Card; 12]>>;
+pub type SharedHand = Rc<RefCell<[Card; 12]>>;
 
-
-
-
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 pub trait PlayerController {
-    async fn play(&mut self, previous: &[Card], announcement: &Announcement) -> Result<Card, CardError>;
+    async fn play(
+        &mut self,
+        previous: &[Card],
+        announcement: &Announcement,
+    ) -> Result<Card, CardError>;
     async fn bid(&mut self, current_bid: Bid) -> Bid;
     async fn listen(&mut self, bid: Bid) -> bool;
     async fn announce(&mut self) -> Announcement;
     async fn take_off(&mut self, deck_size: usize) -> usize;
+    async fn select_skat(&mut self) -> [usize; 2];
 }
 
-pub enum ControllerError{
+pub enum ControllerError {
     NoControllerProvided,
 }
 
@@ -35,7 +38,13 @@ pub struct Player {
 
 impl Player {
     pub fn new<C: PlayerController + 'static>(controller: C, hand: SharedHand) -> Self {
-        Self { controller: Box::new(controller), hand, party: None, score: 0, tricks: Vec::new() }
+        Self {
+            controller: Box::new(controller),
+            hand,
+            party: None,
+            score: 0,
+            tricks: Vec::new(),
+        }
     }
 
     pub async fn take_off(&mut self, deck: &mut Deck) {
@@ -63,22 +72,35 @@ impl Player {
     ) -> Result<*const Player, CardError> {
         let played_card = self.controller.play(&[], announcement).await?;
         let op1_card = op1.controller.play(&[played_card], announcement).await?;
-        let op2_card = op2.controller.play(&[played_card, op1_card], announcement).await?;
+        let op2_card = op2
+            .controller
+            .play(&[played_card, op1_card], announcement)
+            .await?;
 
         if played_card.surpasses(&op1_card, announcement)?
             && played_card.surpasses(&op2_card, announcement)?
         {
-            self.tricks.append(&mut vec![played_card, op1_card, op2_card]);
+            self.tricks
+                .append(&mut vec![played_card, op1_card, op2_card]);
             return Ok(self);
         }
         if op1_card.surpasses(&played_card, announcement)?
             && op1_card.surpasses(&op2_card, announcement)?
         {
-            op1.tricks.append(&mut vec![played_card, op1_card, op2_card]);
+            op1.tricks
+                .append(&mut vec![played_card, op1_card, op2_card]);
             return Ok(op1);
         }
-        op2.tricks.append(&mut vec![played_card, op1_card, op2_card]);
+        op2.tricks
+            .append(&mut vec![played_card, op1_card, op2_card]);
         Ok(op2)
+    }
+
+    pub async fn push_skat(&mut self) {
+        let indices = self.controller.select_skat().await;
+        for idx in indices {
+            self.tricks.push(std::mem::take(&mut self.hand.borrow_mut()[idx]));
+        }
     }
 }
 
@@ -138,11 +160,41 @@ pub enum Bid {
 }
 
 pub const ALL_BIDS: &[Bid] = &[
-    Bid::B18, Bid::B20, Bid::B22, Bid::B23, Bid::B24, Bid::B27, Bid::B30,
-    Bid::B33, Bid::B35, Bid::B36, Bid::B40, Bid::B44, Bid::B46, Bid::B48,
-    Bid::B50, Bid::B54, Bid::B55, Bid::B59, Bid::B60, Bid::B63, Bid::B66,
-    Bid::B70, Bid::B72, Bid::B77, Bid::B80, Bid::B81, Bid::B84, Bid::B88,
-    Bid::B90, Bid::B92, Bid::B96, Bid::B100, Bid::B102, Bid::B108, Bid::B110,
+    Bid::B18,
+    Bid::B20,
+    Bid::B22,
+    Bid::B23,
+    Bid::B24,
+    Bid::B27,
+    Bid::B30,
+    Bid::B33,
+    Bid::B35,
+    Bid::B36,
+    Bid::B40,
+    Bid::B44,
+    Bid::B46,
+    Bid::B48,
+    Bid::B50,
+    Bid::B54,
+    Bid::B55,
+    Bid::B59,
+    Bid::B60,
+    Bid::B63,
+    Bid::B66,
+    Bid::B70,
+    Bid::B72,
+    Bid::B77,
+    Bid::B80,
+    Bid::B81,
+    Bid::B84,
+    Bid::B88,
+    Bid::B90,
+    Bid::B92,
+    Bid::B96,
+    Bid::B100,
+    Bid::B102,
+    Bid::B108,
+    Bid::B110,
 ];
 
 pub fn bid_from_value(v: u8) -> Option<Bid> {
@@ -166,7 +218,7 @@ pub enum AnnounceSuit {
     Suit(Suit),
 }
 
-impl Default for AnnounceSuit{
+impl Default for AnnounceSuit {
     fn default() -> Self {
         Self::Suit(Default::default())
     }

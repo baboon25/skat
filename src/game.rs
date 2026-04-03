@@ -1,6 +1,5 @@
-use std::{default, marker::PhantomData};
+use std::marker::PhantomData;
 
-use futures::lock::Mutex;
 use rand::{
     Rng,
     seq::{IndexedRandom, SliceRandom},
@@ -9,6 +8,7 @@ use web_sys::console::log_1;
 
 use crate::{
     deck::{Card, CardError, Deck},
+    helpers::set_game_type,
     player::{self, Announcement, Bid, Party, Player, SharedHand},
 };
 
@@ -73,17 +73,22 @@ where
 
             // bid
             let declarer_idx = self.bid(curr_player).await?;
-            // let [p0, p1, p2] = &mut self.players;
             let (mut winner, [mut opponent0, mut opponent1]) = self.split_players(declarer_idx);
 
             winner.party = Some(Party::Re);
+            winner.hand.borrow_mut().iter_mut().filter(|c| c.0 == 0).enumerate().for_each(|(i, c)|{
+                *c = skat[i];
+            });
+            winner.hand.borrow_mut().sort_by(|c, o| o.cmp(c, &Default::default()));
             opponent0.party = Some(Party::Contra);
             opponent1.party = Some(Party::Contra);
 
             // play
             let announcement = winner.announce().await;
+            set_game_type(&announcement);
 
-            winner.tricks.append(&mut skat.into());
+            winner.push_skat().await;
+            winner.hand.borrow_mut().sort_by(|c, o| o.cmp(c, &announcement));
 
             for _ in 0..10 {
                 let new_winner = winner.play(opponent0, opponent1, &announcement).await?;
@@ -107,11 +112,11 @@ where
         let (mut deals, skat) = self.deck.deal();
         for (i, deal) in deals.iter_mut().enumerate() {
             let mut extended = [Card::default(); 12];
-            log_1(&format!("{:?}", deal).into());
-            *self.players[(curr_player + i + 1) % 3].hand.lock().await = {
+            // log_1(&format!("{:?}", deal).into());
+            *self.players[(curr_player + i + 1) % 3].hand.borrow_mut() = {
                 extended[..10].copy_from_slice(deal);
                 extended.sort_by(|s, o| o.cmp(s, &Default::default()));
-                log_1(&format!("{:?}", extended).into());
+                // log_1(&format!("{:?}", extended).into());
                 extended
             }
         }

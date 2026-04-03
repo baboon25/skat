@@ -17,6 +17,8 @@ thread_local! {
     static LISTEN_TX:   RefCell<Option<oneshot::Sender<bool>>>         = const { RefCell::new(None) };
     static ANNOUNCE_TX: RefCell<Option<oneshot::Sender<Announcement>>> = const { RefCell::new(None) };
     static TAKE_OFF_TX: RefCell<Option<oneshot::Sender<usize>>>        = const { RefCell::new(None) };
+    static SKAT_TX:     RefCell<Option<oneshot::Sender<[usize; 2]>>>   = const { RefCell::new(None) };
+    static SKAT_FIRST:  RefCell<Option<usize>>                         = const { RefCell::new(None) };
 }
 
 // ── LocalPlayer ───────────────────────────────────────────────────────────────
@@ -73,9 +75,21 @@ impl LocalPlayer {
     pub fn submit_take_off(idx: usize) {
         TAKE_OFF_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send(idx).ok()); });
     }
+
+    /// Spieler wählt eine Skatkarte (idx). Beim zweiten Aufruf wird der Skat bestätigt.
+    pub fn select_skat_card(idx: usize) {
+        SKAT_FIRST.with(|first| {
+            let mut f = first.borrow_mut();
+            if let Some(first_idx) = f.take() {
+                SKAT_TX.with(|t| { t.borrow_mut().take().map(|tx| tx.send([first_idx, idx]).ok()); });
+            } else {
+                *f = Some(idx);
+            }
+        });
+    }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl PlayerController for LocalPlayer {
     async fn play(&mut self, previous: &[Card], announcement: &Announcement) -> Result<Card, CardError> {
         hide("bid-area");
@@ -83,24 +97,22 @@ impl PlayerController for LocalPlayer {
         hide("take-off-area");
         show("hand");
         loop {
-            render_game_state(&*self.hand.lock().await, previous);
+            render_game_state(&*self.hand.borrow(), previous);
             set_status("Wähle eine Karte zum Ausspielen");
             let (tx, rx) = oneshot::channel();
             PLAY_TX.with(|t| *t.borrow_mut() = Some(tx));
             let idx = rx.await.unwrap();
-            let hand = self.hand.lock().await;
-            let card = hand[idx];
+            let card = self.hand.borrow()[idx];
             let lead = previous.first().copied();
-            if lead.is_none() || card.is_legal(&*hand, lead.unwrap(), announcement) {
-                drop(hand);
-                return Ok(std::mem::take(&mut self.hand.lock().await[idx]));
+            if lead.is_none() || card.is_legal(&*self.hand.borrow(), lead.unwrap(), announcement) {
+                return Ok(std::mem::take(&mut self.hand.borrow_mut()[idx]));
             }
             set_status("Ungültige Karte — du musst Farbe bekennen!");
         }
     }
 
     async fn bid(&mut self, current_bid: Bid) -> Bid {
-        render_game_state(&*self.hand.lock().await, &[]);
+        render_game_state(&*self.hand.borrow(), &[]);
         show("hand");
         hide("announce-area");
         hide("take-off-area");
@@ -126,7 +138,7 @@ impl PlayerController for LocalPlayer {
     }
 
     async fn announce(&mut self) -> Announcement {
-        render_game_state(&*self.hand.lock().await, &[]);
+        render_game_state(&*self.hand.borrow(), &[]);
         hide("bid-area");
         hide("take-off-area");
         show("hand");
@@ -147,5 +159,21 @@ impl PlayerController for LocalPlayer {
         let (tx, rx) = oneshot::channel();
         TAKE_OFF_TX.with(|t| *t.borrow_mut() = Some(tx));
         rx.await.unwrap()
+    }
+
+    async fn select_skat(&mut self) -> [usize; 2] {
+        hide("bid-area");
+        hide("announce-area");
+        hide("take-off-area");
+        render_game_state(&*self.hand.borrow(), &[]);
+        show("skat-area");
+        show("hand");
+        set_status("Wähle zwei Karten für den Skat");
+        SKAT_FIRST.with(|f| f.borrow_mut().take());
+        let (tx, rx) = oneshot::channel();
+        SKAT_TX.with(|t| *t.borrow_mut() = Some(tx));
+        let indices = rx.await.unwrap();
+        hide("skat-area");
+        indices
     }
 }

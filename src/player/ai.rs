@@ -1,5 +1,5 @@
 use crate::{
-    deck::{Card, CardError, Suit},
+    deck::{Card, CardError},
     player::{AnnounceSuit, Announcement, Bid, PlayerController, SharedHand},
 };
 
@@ -14,14 +14,14 @@ impl AiController {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl PlayerController for AiController {
     async fn play(
         &mut self,
         previous: &[Card],
         announcement: &Announcement,
     ) -> Result<Card, CardError> {
-        let hand = &mut *self.hand.lock().await;
+        let hand = &mut *self.hand.borrow_mut();
         if previous.is_empty() {
             Ok(std::mem::take(
                 hand.iter_mut()
@@ -31,10 +31,8 @@ impl PlayerController for AiController {
         } else {
             let lookup = *hand;
             Ok(std::mem::take(
-                hand
-                    .iter_mut()
-                    .filter(|c| c.has_rank() && c.has_suit())
-                    .filter(|c| c.is_legal(&lookup, previous[0], announcement))
+                hand.iter_mut()
+                    .filter(|c| c.has_rank() && c.has_suit() && c.is_legal(&lookup, previous[0], announcement))
                     .min_by_key(|c| c.get_rank())
                     .ok_or(CardError::Uninitialized)?,
             ))
@@ -60,5 +58,17 @@ impl PlayerController for AiController {
 
     async fn take_off(&mut self, deck_size: usize) -> usize {
         deck_size / 2
+    }
+
+    async fn select_skat(&mut self) -> [usize; 2] {
+        let hand = self.hand.borrow();
+        let mut indices: Vec<usize> = hand
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.has_rank() && c.has_suit())
+            .map(|(i, _)| i)
+            .collect();
+        indices.sort_by_key(|&i| hand[i].get_rank());
+        [indices[0], indices[1]]
     }
 }
